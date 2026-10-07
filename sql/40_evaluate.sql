@@ -3,7 +3,7 @@ WITH preds AS (
   SELECT 'naive_24h' AS model, ts, site_id, y_hat FROM ev_ds.pred_naive_24
   UNION ALL SELECT 'naive_168h', ts, site_id, y_hat FROM ev_ds.pred_naive_168
   UNION ALL SELECT 'naive_4wk', ts, site_id, y_hat FROM ev_ds.pred_naive_4wk
-  -- UNION ALL SELECT 'arima_plus', ts, site_id, y_hat FROM ev_ds.pred_arima
+  UNION ALL SELECT 'arima_plus', ts, site_id, y_hat FROM ev_ds.pred_arima
 ),
 buckets AS (
   SELECT * FROM UNNEST([
