@@ -1,0 +1,18 @@
+{
+  "displayName": "bt-raw-day1-smoke",
+  "model": "projects/ev-forecast-2026/locations/us-central1/models/ev_demand_bt_raw",
+  "inputConfig": {
+    "instancesFormat": "bigquery",
+    "bigquerySource": { "inputUri": "bq://ev-forecast-2026.ev_ds.batch_input" }
+  },
+  "outputConfig": {
+    "predictionsFormat": "bigquery",
+    "bigqueryDestination": { "outputUri": "bq://ev-forecast-2026.ev_ds" }
+  },
+  "instanceConfig": { "instanceType": "object" },
+  "dedicatedResources": {
+    "machineSpec": { "machineType": "n1-standard-2" },
+    "startingReplicaCount": 1,
+    "maxReplicaCount": 1
+  }
+}

@@ -114,3 +114,30 @@ Notes:
 | 1 | 0.300 | 6 | 0.889 |
 
 - **Limitation:** for `bt_resid` the best trials sit at the **lower** edge of the depth range (best depth 4 is the minimum; the top five are depth 4 or 5). Shallower trees might do better. For `bt_raw` the best sat at the upper edge. Not re-tuned, by plan.
+
+## Batch inference (Day 3, phase D): cut, result does not match ML.PREDICT
+
+One-day slice (1 Aug local, 33,312 rows) of `ev_demand_bt_raw`, Vertex batch prediction on one `n1-standard-2`. **Not usable for scoring.** The batch output disagrees with `ML.PREDICT` and the cause is not found. Cut under the plan's 40 min rule, moved to Day 4.
+
+- **Works:** `outputUri` = `bq://<project>.ev_ds` is accepted. The job writes a table `predictions_<timestamp>` (plus an `_errors` table) into that dataset. The output has the input columns plus a STRING column `prediction` (cast it to FLOAT64). With `instanceType = object` and a BigQuery source the rows are sent by column name.
+- **Attempt 1 failed on every row, but the job state said `SUCCEEDED`.** Only `completionStats.failedCount = 33312` and the `_errors` table showed it. Check the counts, not the state. Cause: the registered model is the bare XGBoost. `TRANSFORM` is **not** applied at serving (`ML.PREDICT` applies it, the Vertex path does not), so the input needs the already transformed features (`temp_bucket`, and `hr` / `dow` as strings). `ts` and `site_id` are rejected as non-features (error: `Row 0 has different features ... than the model features`).
+- **Fix for attempt 2:** `sql/60_batch_input.sql` builds the input with `ML.TRANSFORM(MODEL ev_ds.bt_raw, ...)`, which applies the model's own stored TRANSFORM (same bucket boundaries as training), then drops `ts`, `site_id` and the dummy `y_raw` / `xsplit`. All 33,312 rows were scored. With no key left, the compare joins on `(latitude, longitude, hr)`, unique here (33,312 of 33,312).
+- **Result vs `ML.PREDICT` on the same rows:** max abs diff 126.0, mean abs diff 3.95, correlation 0.98. MAE against actuals: batch 7.02, `ML.PREDICT` 3.27 (matches the `day1` MAE of `bt_raw` in `ev_ds.metrics`, 3.266). So the batch model is a worse, correlated predictor.
+- **Cause not found.** Leads, none confirmed: the registry holds a single version (4, alias `default`) created 2m23s after the final `bt_raw` job started, before training finished, so it may not hold the final weights. Or the categorical `hr`, `dow` and `temp_bucket` strings are encoded differently in the serving container. A possible test for Day 4: re-register with `ALTER MODEL ev_ds.bt_raw SET OPTIONS (vertex_ai_model_id = 'ev_demand_bt_raw')` and re-run the batch.
+- Cost: about $0.04 per attempt (20 min on one `n1-standard-2`), see `docs/cost-log.md`.
+
+## Weather uplift (city series), Day 3 phase E
+
+One series (city total per hour, 4,392 rows), `ARIMA_PLUS` vs `ARIMA_PLUS_XREG` with 6 weather regressors (temp, precip, solarradiation, windspeed, cloudcover, humidity). Same training window (Apr-Jul), `auto_arima_max_order = 2`, horizon 744 from 2023-07-31 22:00 UTC. Scored on city WAPE only (`ev_ds.metrics_city`), val only so far.
+
+| model | WAPE city, all | WAPE city, wk1 | WAPE city, day1 |
+|---|---|---|---|
+| arima_city | 0.1016 | 0.0967 | 0.0911 |
+| xreg_city | 0.1122 | 0.1308 | 0.0909 |
+| site_arima_summed (Day 2 site model, summed) | 0.0942 | 0.0997 | 0.0969 |
+| naive_24h (rolling day-ahead, reference only) | 0.0056 | 0.0110 | 0.0614 |
+
+- **Verdict: weather did not help.** The weather model is slightly worse than the plain one over the month (0.1122 vs 0.1016), clearly worse on the first week (0.1308 vs 0.0967) and equal on day 1. This is with oracle weather (actuals, not forecasts), so a real forecast-weather pipeline would be no better. It agrees with `ML.GLOBAL_EXPLAIN`, where weather features carry almost no importance.
+- Both models are frozen-origin 744 h forecasts, not day-ahead, so `naive_24h` (rolling, every input at least 24 h old) is not the right comparison. Its row is shown only for scale. Neither model sets `holiday_region`, so the pair is comparable with each other, not with the site-level model.
+- Caveats: one series, one run, order limit 2. The XREG model has more parameters and a long horizon, so a worse WAPE is plausible even without a real weather effect. Not tuned further.
+- The test-month pair (retrained through 31 Aug, 720 h) is phase F3, the first cut if time runs short.
