@@ -1,6 +1,8 @@
 # Results so far (val = Aug 2023 local, test = Sep 2023 local)
 
-Gate baseline (lowest val WAPE, bucket all): naive_24h, WAPE 0.0133. Day 4's pipeline gate must beat this.
+**Headline (Day 3): neither boosted tree beats `naive_24h`.** On the September test, site WAPE is 0.0080 for `naive_24h`, 0.0161 for `bt_resid` and 0.1293 for `bt_raw`; val gives the same ranking (0.0133, 0.0208, 0.0900). The series look smoothed (31% of train site-hours repeat the previous hour exactly, lag-24 correlation 0.979), so yesterday is almost the answer and a tree has to spend capacity re-learning it. Predicting the residual on `lag_24h` (`bt_resid`) removes most of that cost but does not beat the baseline. Weather did not help either: on the city series the weather model is worse than plain ARIMA on both val and test (oracle weather, so an upper bound).
+
+Gate baseline (lowest val WAPE, bucket all): naive_24h, WAPE 0.0133. Day 4's pipeline gate must beat this (the better of `naive_24h` 0.0133 and the best tree, `bt_resid` 0.0208, is still `naive_24h`).
 
 | model | split | bucket | WAPE site-pooled | WAPE city | MAE | RMSE | n_rows |
 |---|---|---|---|---|---|---|---|
@@ -33,7 +35,27 @@ Notes:
 - `energy_kwh` is probably not literal kWh (see data-notes.md), so MAE and RMSE are in unverified units. WAPE is the headline.
 - naive_24h WAPE is very low (1.3% val, 0.8% test). EDA found 31% of train site-hours repeat the previous hour exactly, so the series look smoothed. A day-ahead model has to beat a hard baseline.
 - Oracle weather: the weather features are actuals, not forecasts. Any weather uplift is an upper bound.
-- Test numbers for anything fitted arrive on Day 3.
+- Test numbers for the fitted models are in the Day 3 table below.
+
+## Day 3 final: site-level models, val and test
+
+WAPE site-pooled. Trees are scored on val and on the September test; `arima_plus` was not rerun on test (cut by plan).
+
+| model | val all | test all | val day1 | test day1 | test MAE, all |
+|---|---|---|---|---|---|
+| naive_24h (gate) | 0.0133 | 0.0080 | 0.0699 | 0.0086 | 0.264 |
+| bt_resid | 0.0208 | 0.0161 | 0.0661 | 0.0168 | 0.534 |
+| naive_168h | 0.0538 | 0.0318 | 0.1273 | 0.0312 | 1.050 |
+| naive_4wk | 0.1422 | 0.0723 | 0.3246 | 0.0716 | 2.390 |
+| bt_raw | 0.0900 | 0.1293 | 0.1006 | 0.0971 | 4.276 |
+| arima_plus | 0.1114 | not scored | 0.1000 | not scored | n/a |
+
+- Test number of rows: 999,360 for bucket `all`, 0 null predictions. Test ranking: naive_24h < bt_resid < naive_168h < naive_4wk < bt_raw.
+- `bt_resid` loses to `naive_24h` in every bucket on test (about twice the error), and wins only on val `day1` (0.0661 vs 0.0699). `bt_raw` is the worst model on test (RMSE 58.9: a few very large misses), even worse than `naive_4wk`.
+- The trees were tuned on August data (EVAL and the inner TEST holdout), so their val numbers are optimistic. The test month is the honest number, and nothing was changed after the test numbers were produced. Test was not better for the trees than val in relative terms: `bt_resid` / `naive_24h` is 1.6 on val and 2.0 on test.
+- Trees are day-ahead (every lag at least 24 h old, oracle weather). `arima_plus` is one frozen-origin 744 h forecast. They do not get the same information.
+- Units: `energy_kwh` is probably not literal kWh, so MAE and RMSE are in unverified units. WAPE is the headline.
+- Feature importance: `lag_24h` dominates (see "bt_raw global explain" below). Batch inference through Vertex did not match `ML.PREDICT` (see "Batch inference").
 
 ## Doc checks
 
@@ -140,4 +162,20 @@ One series (city total per hour, 4,392 rows), `ARIMA_PLUS` vs `ARIMA_PLUS_XREG` 
 - **Verdict: weather did not help.** The weather model is slightly worse than the plain one over the month (0.1122 vs 0.1016), clearly worse on the first week (0.1308 vs 0.0967) and equal on day 1. This is with oracle weather (actuals, not forecasts), so a real forecast-weather pipeline would be no better. It agrees with `ML.GLOBAL_EXPLAIN`, where weather features carry almost no importance.
 - Both models are frozen-origin 744 h forecasts, not day-ahead, so `naive_24h` (rolling, every input at least 24 h old) is not the right comparison. Its row is shown only for scale. Neither model sets `holiday_region`, so the pair is comparable with each other, not with the site-level model.
 - Caveats: one series, one run, order limit 2. The XREG model has more parameters and a long horizon, so a worse WAPE is plausible even without a real weather effect. Not tuned further.
-- The test-month pair (retrained through 31 Aug, 720 h) is phase F3, the first cut if time runs short.
+- The test-month pair is phase F3 (below).
+
+### City models on the test month (phase F3, read once)
+
+Both ARIMA models retrained on Apr-Aug, 720 h forecast from 2023-08-31 22:00 UTC (September 2023 local). Trees are scored on the same hours (city totals of their site predictions). City WAPE, test:
+
+| model | all | wk1 | day1 |
+|---|---|---|---|
+| naive_24h | 0.0014 | 0.0020 | 0.0018 |
+| bt_resid | 0.0058 | 0.0063 | 0.0033 |
+| bt_raw | 0.0874 | 0.0696 | 0.0654 |
+| arima_city | 0.1110 | 0.0264 | 0.0047 |
+| xreg_city | 0.1277 | 0.1482 | 0.0394 |
+
+- **Weather did not help on test either.** `xreg_city` is worse than `arima_city` in every bucket (0.1277 vs 0.1110 for the month, 0.1482 vs 0.0264 for the first week, 0.0394 vs 0.0047 for day 1). Val gave the same direction. With oracle weather this is an upper bound for any weather uplift.
+- At the city level `naive_24h` still wins on test, and `bt_resid` is a clear second (0.0058). `bt_raw` is far behind (0.0874).
+- The frozen-origin ARIMA error grows with the horizon (0.0047 on day 1, 0.1110 over the month). That is a horizon effect, not a day-ahead comparison.

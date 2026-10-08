@@ -2,8 +2,8 @@ CREATE OR REPLACE TABLE ev_ds.metrics_city AS
 WITH preds AS (
   SELECT 'arima_city' AS model, ts, y_hat FROM ev_ds.pred_city_arima
   UNION ALL SELECT 'xreg_city', ts, y_hat FROM ev_ds.pred_city_xreg
-  -- UNION ALL SELECT 'arima_city', ts, y_hat FROM ev_ds.pred_city_arima_t
-  -- UNION ALL SELECT 'xreg_city', ts, y_hat FROM ev_ds.pred_city_xreg_t
+  UNION ALL SELECT 'arima_city', ts, y_hat FROM ev_ds.pred_city_arima_t
+  UNION ALL SELECT 'xreg_city', ts, y_hat FROM ev_ds.pred_city_xreg_t
   UNION ALL SELECT 'site_arima_summed', ts, SUM(y_hat) FROM ev_ds.pred_arima GROUP BY ts
   UNION ALL SELECT 'naive_24h', ts, SUM(y_hat) FROM ev_ds.pred_naive_24 GROUP BY ts
   UNION ALL SELECT 'bt_raw', ts, SUM(y_hat) FROM ev_ds.pred_bt_raw GROUP BY ts
