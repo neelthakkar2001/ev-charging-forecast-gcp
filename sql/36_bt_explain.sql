@@ -1,0 +1,2 @@
+SELECT * FROM ML.GLOBAL_EXPLAIN(MODEL ev_ds.bt_raw)
+ORDER BY attribution DESC;
