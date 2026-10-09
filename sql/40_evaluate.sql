@@ -6,7 +6,7 @@ WITH preds AS (
   UNION ALL SELECT 'arima_plus', ts, site_id, y_hat FROM ev_ds.pred_arima
   UNION ALL SELECT 'bt_raw',   ts, site_id, y_hat FROM ev_ds.pred_bt_raw
   UNION ALL SELECT 'bt_resid', ts, site_id, y_hat FROM ev_ds.pred_bt_resid
-
+  UNION ALL SELECT 'xgb_resid', ts, site_id, y_hat FROM ev_ds.pred_xgb_resid
 ),
 buckets AS (
   SELECT * FROM UNNEST([
