@@ -7,3 +7,4 @@ __pycache__/
 *key*.json
 plans/*
 readme_1.md
+pipelines/*.json
