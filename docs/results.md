@@ -2,6 +2,8 @@
 
 **Headline (Day 3): neither boosted tree beats `naive_24h`.** On the September test, site WAPE is 0.0080 for `naive_24h`, 0.0161 for `bt_resid` and 0.1293 for `bt_raw`; val gives the same ranking (0.0133, 0.0208, 0.0900). The series look smoothed (31% of train site-hours repeat the previous hour exactly, lag-24 correlation 0.979), so yesterday is almost the answer and a tree has to spend capacity re-learning it. Predicting the residual on `lag_24h` (`bt_resid`) removes most of that cost but does not beat the baseline. Weather did not help either: on the city series the weather model is worse than plain ARIMA on both val and test (oracle weather, so an upper bound).
 
+**Day 4 update: XGBoost on the residual label ties `naive_24h`.** Val 0.0135 vs 0.0133 (the gate blocked it), September test 0.0078 vs 0.0080 (read once). The gap is 0.0002 either way, and the city-level test scores are equal at 0.0014, so it is a tie within what we can measure, not a win. Details, the blocked and forced pipeline runs and the freeze note are in "Day 4" at the end of this file.
+
 Gate baseline (lowest val WAPE, bucket all): naive_24h, WAPE 0.0133. Day 4's pipeline gate must beat this (the better of `naive_24h` 0.0133 and the best tree, `bt_resid` 0.0208, is still `naive_24h`).
 
 | model | split | bucket | WAPE site-pooled | WAPE city | MAE | RMSE | n_rows |
@@ -147,6 +149,7 @@ One-day slice (1 Aug local, 33,312 rows) of `ev_demand_bt_raw`, Vertex batch pre
 - **Result vs `ML.PREDICT` on the same rows:** max abs diff 126.0, mean abs diff 3.95, correlation 0.98. MAE against actuals: batch 7.02, `ML.PREDICT` 3.27 (matches the `day1` MAE of `bt_raw` in `ev_ds.metrics`, 3.266). So the batch model is a worse, correlated predictor.
 - **Cause not found.** Leads, none confirmed: the registry holds a single version (4, alias `default`) created 2m23s after the final `bt_raw` job started, before training finished, so it may not hold the final weights. Or the categorical `hr`, `dow` and `temp_bucket` strings are encoded differently in the serving container. A possible test for Day 4: re-register with `ALTER MODEL ev_ds.bt_raw SET OPTIONS (vertex_ai_model_id = 'ev_demand_bt_raw')` and re-run the batch.
 - Cost: about $0.04 per attempt (20 min on one `n1-standard-2`), see `docs/cost-log.md`.
+- Day 4 follow-up: lead (1) is closed as untestable and the re-register step is impossible (see "Phase Q" in the Day 4 section at the end).
 
 ## Weather uplift (city series), Day 3 phase E
 
@@ -179,3 +182,75 @@ Both ARIMA models retrained on Apr-Aug, 720 h forecast from 2023-08-31 22:00 UTC
 - **Weather did not help on test either.** `xreg_city` is worse than `arima_city` in every bucket (0.1277 vs 0.1110 for the month, 0.1482 vs 0.0264 for the first week, 0.0394 vs 0.0047 for day 1). Val gave the same direction. With oracle weather this is an upper bound for any weather uplift.
 - At the city level `naive_24h` still wins on test, and `bt_resid` is a clear second (0.0058). `bt_raw` is far behind (0.0874).
 - The frozen-origin ARIMA error grows with the horizon (0.0047 on day 1, 0.1110 over the month). That is a horizon effect, not a day-ahead comparison.
+
+## Day 4: XGBoost custom job, gated pipeline, September scored once
+
+**Headline: `xgb_resid` ties `naive_24h`.** On August (val) it is slightly worse, 0.0135 vs 0.0133 (about 1.2% relative). On September (test, read once) it is slightly better, 0.0078 vs 0.0080 (about 2.5% relative, MAE 0.259 vs 0.264). City-level WAPE is equal on test (0.0014). I did not test whether a 0.0002 gap is more than noise, so this is a tie, not a win. The pipeline gate blocked the model on val, using a rule fixed before test was read, and the better test number does not change that decision.
+
+### Model and runs
+
+- Model: XGBoost 2.1.4 on the residual label (`y_resid = energy_kwh - lag_24h`, prediction = `lag_24h` + output, clipped at 0). `max_depth` 4, `learning_rate` 0.231 (the best `bt_resid` trial), up to 500 trees, `reg:absoluteerror`, early stopping 30 on MAE, `tree_method` hist, `random_state` 0. The 19 `FEATURES` go through one shared function, `preprocess()`, with `hr` and `dow` as plain numbers (no TRANSFORM).
+- Container: `python:3.12-slim`, image `us-central1-docker.pkg.dev/ev-forecast-2026/ev/xgb-train:v1`, Vertex CustomJob on `e2-standard-8` as `ev-pipeline-sa`, timeout 90 min.
+- Run `c3` (CustomJob 3380177890887860224): 61 s, `n_train` 3,798,956, `n_val` 1,032,672, `eval_mae` 0.4879, `inner_test_mae` 0.2890, `val_wape` 0.013498, **`best_iteration` 0** (only one tree kept). Logged to Experiments `ev-demand` (screenshots `docs/img/day4-experiments-c3-params.png` and `...-metrics.png`).
+- The smoke test on 1 site in 20 also stopped at `best_iteration` 1: eval MAE was best after the first tree (0.258) and rose to 0.420 by tree 31. Likely reading: the residual around `lag_24h` is mostly noise a tree cannot learn, so extra trees overfit. I did not test this further. The smoke `val_wape` of 0.0100 is on a subset of sites and is not comparable with the full-data number.
+- Two earlier CustomJobs (`c1`, `c2`) failed on missing roles, see "Corrections" below. `c1` and `c2` never wrote results.
+
+### Leaderboard (WAPE site-pooled, bucket all)
+
+| model | val | test | test MAE |
+|---|---|---|---|
+| xgb_resid | 0.0135 | 0.0078 | 0.259 |
+| naive_24h (gate) | 0.0133 | 0.0080 | 0.264 |
+| bt_resid | 0.0208 | 0.0161 | 0.534 |
+| naive_168h | 0.0538 | 0.0318 | 1.050 |
+| naive_4wk | 0.1422 | 0.0723 | 2.390 |
+| bt_raw | 0.0900 | 0.1293 | 4.276 |
+
+- Rows: val 1,032,672 and test 999,360 per model, 0 null predictions. The Day 3 numbers did not change when `ev_ds.metrics` was rebuilt.
+- Test was scored once with `scripts/predict_test.py` from the frozen `gs://ev-forecast-2026-raw/runs/p1/model/model.bst`, appended to `ev_ds.pred_xgb_resid`. Nothing was changed after seeing it.
+
+### Gated pipeline (`pipelines/pipeline.py`, kfp 2.17.0, google-cloud-pipeline-components 2.22.0)
+
+`train (CustomTrainingJobOp) -> evaluate -> gate -> register only if the gate passes`. `evaluate` recomputes val WAPE from BigQuery (asserts 1,032,672 rows and 0 nulls, and checks it against the container's `result.json` to 1e-6). `gate` reads the `naive_24h` val WAPE live from `ev_ds.metrics` and writes every decision to `ev_ds.gate_log`.
+
+| run | pipeline job | candidate | threshold | forced | decision | registered |
+|---|---|---|---|---|---|---|
+| honest | ev-xgb-gate-20261009194602 | 0.013498 | 0.013332 (naive_24h) | false | **block** | nothing |
+| forced | ev-xgb-gate-20261009221617 | 0.013498 | 0.05 (override) | true | pass | `ev_demand_xgb_resid_forced_demo`, label `gate=forced` |
+
+- **The forced run overrides the gate to prove the register branch works. It is not a win and the registered model is a demo.** Its train, evaluate and gate steps came from the Vertex cache.
+- `Model.upload` accepted the artifact folder and the prebuilt `xgboost-cpu.2-1` serving image. **Nothing has served a prediction from it**, so whether the image loads `model.bst` and what it returns is untested. The registered model would return the residual, not the demand.
+- The forced run created two identical registry entries. The newer duplicate (8026373859869458432) was deleted, leaving 9130881668482072576. Cause not confirmed: the forced pipeline may have been submitted twice.
+
+### Phase Q: batch mismatch (Day 3 leftover)
+
+- Re-registering is impossible: `ALTER MODEL ev_ds.bt_raw SET OPTIONS (vertex_ai_model_id = ...)` fails with "already registered to Vertex AI". The registry holds exactly one version, `@4`, so a re-run of the batch could only hit it again. Not re-run.
+- Lead (1), stale version: `@4` was created 2026-10-08 12:34:35Z, 2.4 minutes after tuning started (12:32:11Z) and about 65 minutes before the BigQuery model finished (13:39:37Z). The BigQuery model records `vertexAiModelVersion: "4"`, so the link is right, but timestamps cannot show whether its weights are the final trial 9. The registry exposes no artifact URI. Untestable.
+- Lead (2), encoding: the model's `transformColumns` show `hr` and `dow` become strings and `temp_bucket` comes from `ML.QUANTILE_BUCKETIZE(temp, 8) OVER ()`, which exists only inside the TRANSFORM. The registered model is an XGBoost 0.9 booster.
+- The grouped comparison (batch vs `ML.PREDICT` by `hr`, `dow` and `temp` decile) was **not run**. Outcome: **limitation, version @4 weights unverifiable and the cause not isolated.** This is why the XGBoost model takes its preprocessing from `preprocess()` instead of a TRANSFORM.
+
+### Freeze
+
+- Git tag `freeze-day4` was pushed before `sql/40_evaluate.sql` (with the `xgb_resid` line) and `scripts/predict_test.py` were committed. The model, training code, preprocessing and pipeline are in the tag, and the frozen artifact is `runs/p1/model/model.bst`. The two later files only score the model and do not change it.
+
+### CI
+
+- `tests/test_sql_dry_run.py` dry-runs six SQL files (`05_verify_load`, `06_eda`, `15_check_features`, `32_tree_input`, `40_evaluate`, `50_city_series`) and `tests/test_preprocess.py` checks column order and dtypes. 7 tests pass locally under my own credentials.
+- `.github/workflows/ci.yml` authenticates through Workload Identity Federation as `ev-ci-sa` (repository id condition). **Not verified:** a green GitHub Actions run. Dry-running `CREATE OR REPLACE TABLE` as `ev-ci-sa` (read-only roles) may need an extra permission.
+
+### Corrections found while executing the plan
+
+- `scikit-learn` was missing from the install list, and `pip` installs into the global Python (this venv is a uv venv).
+- `train_xgb.py` saved the model to `/tmp`, which does not exist on Windows.
+- `python:3.11-slim` cannot install `numpy==2.5.3` (needs Python 3.12 or newer), so the Dockerfile uses `python:3.12-slim`.
+- A3 (role bindings) was not applied before the first CustomJob. Dataset-level `bq add-iam-policy-binding` needs allowlisting here, so `bigquery.dataEditor` and `dataViewer` were granted at project level, and `bigquery.readSessionUser` was added (the Storage API read needs its own permission).
+- The plan expected the candidate near 0.02. It was 0.0135, close to the baseline.
+- `.gitignore` had `readme_1.mdpipelines/*.json` on one line after an `Add-Content` without a newline, and `training/requirements.txt` held pasted shell commands. Both fixed.
+- Shell variables (`$BUCKET`, `$IMAGE`, `$PROJECT`) were empty in new shells several times and failed at argument parsing.
+
+### Limitations
+
+- The 0.0002 test and val gaps are not tested for significance, so "tie" is the safe description.
+- Oracle weather, as on Day 3 (features are actuals, not forecasts).
+- One model, one run, one hyperparameter set (copied from the best `bt_resid` trial, not re-tuned for XGBoost).
+- The registered model is untested at serving time, and the SDK warned that it could not verify the pipeline artifacts bucket (harmless, the job ran).
