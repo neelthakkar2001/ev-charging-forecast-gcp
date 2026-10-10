@@ -22,7 +22,7 @@ The baseline is hard. The series look smoothed (31% of training site-hours repea
 ## Data
 
 - **Source:** the [CHARGED](https://github.com/IntelligentSystemsLab/CHARGED) dataset, Amsterdam subset (hourly charging volume per site, plus hourly weather), April to September 2023. 1,388 sites x 4,392 hours = 6,096,096 site-hour rows.
-- **Splits (time-based, no random split):** training to July, **August = validation**, **September = test**. The test month was scored once, after the git tag `freeze-day4`.
+- **Splits (time-based, no random split):** training to July, **August = validation**, **September = test**. The test month was scored once, after the git tag `freeze-xgboost-model`.
 - **Licence:** the sources disagree (CC-BY-4.0 on Zenodo, MIT for the code, CC BY-NC-ND 4.0 in the article). This repo publishes **code and metrics only**. The data is not redistributed. To reproduce, download CHARGED yourself and attribute its authors.
 - **Data problems found and documented** (`docs/data-notes.md`): the `volume` column fails a sanity check (15.69 kWh per charger-hour, and the file total disagrees with `info.csv`), so it is probably not literal kWh. WAPE (scale-free) is the headline metric, and MAE is in unverified units. Source timestamps are local Amsterdam time (confirmed by solar radiation peaking at 13:00) and are stored as UTC.
 
@@ -98,11 +98,11 @@ The training container is custom because the prebuilt training images were past 
 **The forced run overrides the gate only to prove that the register branch works. It is not a win, and the registered model is a demo.** The registry entry carries the label `gate=forced` for that reason.
 
 ![Registry](docs/img/registry.png)
-![Experiments](docs/img/day4-experiments-c3-metrics.png)
+![Experiments](docs/img/experiments-metrics.png)
 
 **CI** (GitHub Actions): dry-runs the SELECT part of six SQL files and runs the preprocessing unit test. It authenticates with Workload Identity Federation (no stored keys, restricted to this repository by its numeric id) as a read-only service account. CI never submits a pipeline. Last green run: 2026-10-10. The WIF pool was deleted at teardown, so later runs fail at the auth step by design (see below).
 
-One `preprocess()` function is the single feature path for training, scoring and serving. It exists because of a Day 3 lesson: BigQuery's `TRANSFORM` is not applied when the registered model is served by Vertex.
+One `preprocess()` function is the single feature path for training, scoring and serving. It exists because of an earlier lesson with the BigQuery ML trees: BigQuery's `TRANSFORM` is not applied when the registered model is served by Vertex.
 
 ## Limitations
 
@@ -112,7 +112,7 @@ One `preprocess()` function is the single feature path for training, scoring and
 - **Optimistic validation:** the trees and XGBoost were tuned and early-stopped on August, so val numbers are optimistic. September is the honest number.
 - **No significance test:** the 0.0002 gaps are not tested, so "tie" is the safe description. A bootstrap over days on the validation month is a next step.
 - **Registered XGBoost model is not served.** It returns the *residual*, so serving needs `lag_24h` added back outside the model, and a live prediction test failed on feature names (the saved model remembers column names, the serving container sends none). It is registered, not served. [scripts/endpoint_demo.py](scripts/endpoint_demo.py) shows the failed attempt. The frozen model was not changed after the test month was read.
-- **Batch inference mismatch (Day 3):** Vertex batch scoring of the BQML `bt_raw` tree did not match `ML.PREDICT` (MAE 7.02 vs 3.27, correlation 0.98). The cause is not isolated: the registry holds only version `@4`, created before training finished, and its weights cannot be verified. The planned breakdown by hour, weekday and temperature was not run.
+- **Batch inference mismatch:** Vertex batch scoring of the BQML `bt_raw` tree did not match `ML.PREDICT` (MAE 7.02 vs 3.27, correlation 0.98). The cause is not isolated: the registry holds only version `@4`, created before training finished, and its weights cannot be verified. The planned breakdown by hour, weekday and temperature was not run.
 - **One model family, one hyperparameter set** for XGBoost (copied from the best `bt_resid` trial, not re-tuned). Several best trials sat at the edge of the search range.
 - **Licence:** ambiguous across sources, so the data is not redistributed.
 

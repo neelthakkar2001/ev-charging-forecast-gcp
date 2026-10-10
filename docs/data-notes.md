@@ -8,4 +8,4 @@
 - Licence note: the sources disagree. Zenodo says CC BY (reuse with credit); the article says CC BY-NC-ND (non-commercial, no derivatives) and names no separate licence for the data; GitHub has none. Cautious reading used here: credit the authors, non-commercial portfolio use only, do not redistribute the data.
 - Policy: attribute; publish code and metrics only; never commit or redistribute the data
 - Quirks: sites.csv key is `site`, not `site_id`; timestamps are local Amsterdam time (solar peak 13h), Apr-Sep has no DST change;
-  volume units fail the sanity check (15.69 kWh per charger-hour); research file said 8,880 chargers, actual is 2,172 chargers / 1,388 sites in this version
+  volume units fail the sanity check (15.69 kWh per charger-hour); an earlier summary of the dataset quoted 8,880 chargers for Amsterdam, but this version has 2,172 chargers / 1,388 sites

@@ -1,8 +1,8 @@
-"""Day-1 go/no-go for CHARGED Amsterdam, then long-format Parquet for `bq load`.
+"""Go/no-go check for CHARGED Amsterdam, then long-format Parquet for `bq load`.
 
 Run from repo root:  python scripts/prepare_charged.py
 Thresholds below are fixed BEFORE looking at the data. Change them only with a note
-in docs/day1-decision.md saying why.
+in docs/go-no-go-decision.md saying why.
 """
 import sys
 from datetime import date
@@ -55,13 +55,13 @@ res.append(("5 kWh sanity (warn-only)", kw <= MAX_KW_PER_CHARGER,
 
 go = all(r[1] for r in res[:4])
 DOCS.mkdir(exist_ok=True)
-lines = [f"# Day 1 go/no-go ({date.today()})", "", "| check | result | numbers |", "|---|---|---|"]
+lines = [f"# Go/no-go decision ({date.today()})", "", "| check | result | numbers |", "|---|---|---|"]
 for name, passed, msg in res:
     tag = "PASS" if passed else ("WARN" if name.startswith("5") else "FAIL")
     lines.append(f"| {name} | {tag} | {msg} |")
 lines += ["", f"**Decision: {'GO' if go else 'NO-GO'}** (checks 1-4 hard, check 5 warn-only)",
           f"Assumed source timezone: {SRC_TZ}", "", "Notes:", ""]
-(DOCS / "day1-decision.md").write_text("\n".join(lines), encoding="utf-8")
+(DOCS / "go-no-go-decision.md").write_text("\n".join(lines), encoding="utf-8")
 print("\n".join(lines))
 if not go:
     sys.exit("NO-GO: fall back to Option 3 (BigQuery public data). No Parquet written.")

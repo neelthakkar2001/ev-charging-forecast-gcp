@@ -8,7 +8,7 @@ Charging operators and grid planners need tomorrow's load by hour. Too little ca
 
 ## 2. Data and a leakage-safe split
 
-Source: the CHARGED dataset, Amsterdam subset, April to September 2023, 6,096,096 site-hour rows plus hourly weather. The split is by time: training to July, August for validation, September for test. No random split, because it leaks the future into training. Features use lags of 24 hours or more only. The September data was kept out of every training query and **scored once**, after tagging the code (`freeze-day4`). If a bug is found after seeing test, the numbers must be marked as contaminated, not quietly fixed.
+Source: the CHARGED dataset, Amsterdam subset, April to September 2023, 6,096,096 site-hour rows plus hourly weather. The split is by time: training to July, August for validation, September for test. No random split, because it leaks the future into training. Features use lags of 24 hours or more only. The September data was kept out of every training query and **scored once**, after tagging the code (`freeze-xgboost-model`). If a bug is found after seeing test, the numbers must be marked as contaminated, not quietly fixed.
 
 Data problems I found and documented rather than hid: the `volume` column is probably not literal kWh (it fails a sanity check), source timestamps are local Amsterdam time (confirmed from solar radiation peaking at 13:00) and were converted to UTC. Because of the unit problem, WAPE is the headline metric.
 

@@ -1,6 +1,6 @@
 - **Concentration:** top 10% of sites carry 53.6% of train kWh. Trigger (0.70) not fired. Site kWh ranges from 247 to 2.58M, so sites differ hugely in scale.
-- **Quantisation or smoothing**: trigger fired on share_repeat_prev_hour = 31.4%. Action: read the paper's volume-construction section (at most 15 min) and add one line to docs/data-notes.md.
+- **Quantisation or smoothing**: trigger fired on share_repeat_prev_hour = 31.4%. The series look smoothed, so an hour-ago baseline is hard to beat (see the unit caveat in docs/data-notes.md).
 - **Zeros:** 34.2% of site-hours are zero. This is why WAPE is the headline rather than MAPE.
-- **Data quality:** 0 nulls, 0 negatives. Proceed to Phase B.
+- **Data quality:** 0 nulls, 0 negatives. Proceed to feature building.
 - **Units**: the busiest charger-hour is 362 "kWh". That is above a 350 kW fast charger's one-hour maximum, so energy_kwh is probably not literal kWh. This supports the caveat that MAE and RMSE are in unverified units.
 - **Seasonality:** city-total correlation is 0.979 at lag 24 h and 0.904 at lag 168 h. Yesterday is the better predictor on the city total. The gate baseline is still chosen by val WAPE, not by this.
