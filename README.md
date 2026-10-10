@@ -100,7 +100,7 @@ The training container is custom because the prebuilt training images were past 
 ![Registry](docs/img/registry.png)
 ![Experiments](docs/img/day4-experiments-c3-metrics.png)
 
-**CI** (GitHub Actions): dry-runs the SELECT part of six SQL files and runs the preprocessing unit test. It authenticates with Workload Identity Federation (no stored keys, restricted to this repository by its numeric id) as a read-only service account. CI never submits a pipeline. Last green run: `<date of green run, fill in>`. The WIF pool was deleted at teardown, so later runs fail at the auth step by design (see below).
+**CI** (GitHub Actions): dry-runs the SELECT part of six SQL files and runs the preprocessing unit test. It authenticates with Workload Identity Federation (no stored keys, restricted to this repository by its numeric id) as a read-only service account. CI never submits a pipeline. Last green run: 2026-10-10. The WIF pool was deleted at teardown, so later runs fail at the auth step by design (see below).
 
 One `preprocess()` function is the single feature path for training, scoring and serving. It exists because of a Day 3 lesson: BigQuery's `TRANSFORM` is not applied when the registered model is served by Vertex.
 
@@ -124,13 +124,13 @@ Needs a GCP project with billing (a Free Trial works), `gcloud`, `bq`, Python 3.
 
 1. `scripts/prepare_charged.py` reshapes and converts the CSVs to Parquet. Upload to a `us-central1` bucket and `bq load` into a US-multi-region dataset `ev_ds`.
 2. Run the SQL in `sql/` in numeric order (`05` verify, `10` features, `20` baseline, `30`-`37` models and scoring, `40` evaluate, `50`-`53` city series, `60` batch input). Dry-run each first and cap bytes with `--maximum_bytes_billed`.
-3. `infra/setup_day4.ps1` enables the APIs, creates the Artifact Registry repo and the two service accounts with scoped roles.
+3. `infra/setup.ps1` enables the APIs, creates the Artifact Registry repo, the two service accounts with scoped roles, and the Workload Identity Federation pool for CI (edit `$BUCKET` and `$GH_REPO` at the top first).
 4. Build the image with `gcloud builds submit training/` and run `pipelines/pipeline.py` (add `--threshold-override 0.05` for the labelled forced run).
 5. `scripts/predict_test.py` scores the test month from the frozen model, once.
 
 Tests: `python -m pytest -q tests` (needs `GCP_PROJECT` set for the SQL dry runs).
 
-**Teardown:** `infra/teardown.ps1` deletes endpoints, registry models, the Artifact Registry repo, run artifacts in the bucket, the WIF pool and both service accounts. The BigQuery dataset stays (free tier). After teardown a re-run needs `infra/setup_day4.ps1` first, and CI cannot authenticate until WIF is recreated.
+**Teardown:** `infra/teardown.ps1` deletes endpoints, registry models, the Artifact Registry repo, run artifacts in the bucket, the WIF pool and both service accounts. The BigQuery dataset stays (free tier). After teardown a re-run needs `infra/setup.ps1` first, and CI cannot authenticate until WIF is recreated.
 
 ## Attribution
 

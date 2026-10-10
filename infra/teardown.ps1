@@ -1,4 +1,4 @@
-# Teardown for the EV forecast project. Mirrors infra/setup_day4.ps1 in reverse.
+# Teardown for the EV forecast project. Mirrors infra/setup.ps1 in reverse.
 # Default is a DRY RUN: it only lists what exists and what it would delete.
 #   .\infra\teardown.ps1                  list everything, delete nothing
 #   .\infra\teardown.ps1 -Execute         delete the billable and identity resources
