@@ -41,7 +41,7 @@ Notes:
 
 ## Day 3 final: site-level models, val and test
 
-WAPE site-pooled. Trees are scored on val and on the September test; `arima_plus` was not rerun on test (cut by plan).
+WAPE site-pooled. Trees are scored on val and on the September test; `arima_plus` was not rerun on test (cut for time).
 
 | model | val all | test all | val day1 | test day1 | test MAE, all |
 |---|---|---|---|---|---|
@@ -63,9 +63,9 @@ WAPE site-pooled. Trees are scored on val and on the September test; `arima_plus
 
 - **CUSTOM split with tuning:** `data_split_col` must be a STRING column. `TRAIN` rows train, `EVAL` rows evaluate, `TEST` rows test. Without tuning it is a BOOL column instead (FALSE = train, TRUE/NULL = eval). The split column is excluded from the features automatically. Source: CREATE MODEL boosted-tree page, read 2026-10-08. Only seen via page summary, not verbatim.
 - **Is TEST required?** Not stated in the docs. `NUM_TRIALS` triggers a 3-way split (hp-tuning-overview). For non-CUSTOM methods an empty test set is allowed and the eval set is reused as test. Whether that holds for CUSTOM is undocumented. `tree_input` has TEST rows (233,184), so the question does not arise here.
-- **Split column outside TRANSFORM?** Not documented. TRANSFORM + CUSTOM combination is also unaddressed. Settled empirically in step B2. Result: `xsplit` must be listed in the TRANSFORM output (error without it: `Missing 'xsplit' column in TRANSFORM clause, which is specified as DATA_SPLIT_COL in input options`). With `xsplit` listed, the model trains and `bq show --model` does not list `xsplit` as a feature.
+- **Split column outside TRANSFORM?** Not documented. TRANSFORM + CUSTOM combination is also unaddressed. Settled empirically. Result: `xsplit` must be listed in the TRANSFORM output (error without it: `Missing 'xsplit' column in TRANSFORM clause, which is specified as DATA_SPLIT_COL in input options`). With `xsplit` listed, the model trains and `bq show --model` does not list `xsplit` as a feature.
 
-## bt_raw tuning (Day 3, phase B)
+## bt_raw tuning (Day 3)
 
 - 10 trials, 3 in parallel, objective MEAN_ABSOLUTE_ERROR, ranges `max_tree_depth` 4-8 and `learn_rate` 0.02-0.3. All 10 trials succeeded. Read with `ML.TRIAL_INFO` and `--nouse_cache` (a cached result from the earlier 1-trial model showed one trial).
 - Best trial: 9, `learn_rate` 0.278, `max_tree_depth` 8, MAE 2.869 on the EVAL split (1-24 Aug).
@@ -83,10 +83,10 @@ WAPE site-pooled. Trees are scored on val and on the September test; `arima_plus
 | 6 | 0.140 | 8 | 3.518 |
 | 3 | 0.172 | 5 | 3.585 |
 
-- **Limitation:** the best trials sit at the edge of the search range. Trial 9 uses the maximum depth (8), the top four trials are depth 7 or 8, and the best learn rates (0.24-0.30) are close to the upper bound 0.3. Deeper trees or a higher learn rate might do better. Not re-tuned, by plan.
-- The trial MAE is on August data that the tuning also saw, so it is optimistic. The honest number is the test month in phase F. MAE units are unverified (see data-notes.md).
+- **Limitation:** the best trials sit at the edge of the search range. Trial 9 uses the maximum depth (8), the top four trials are depth 7 or 8, and the best learn rates (0.24-0.30) are close to the upper bound 0.3. Deeper trees or a higher learn rate might do better. Not re-tuned.
+- The trial MAE is on August data that the tuning also saw, so it is optimistic. The honest number is the September test month. MAE units are unverified (see data-notes.md).
 
-## bt_raw global explain (Day 3, step C2)
+## bt_raw global explain (Day 3)
 
 `ML.GLOBAL_EXPLAIN(MODEL ev_ds.bt_raw)`, trial 9 (the best trial). Top 8 of 20 features:
 
@@ -107,10 +107,10 @@ WAPE site-pooled. Trees are scored on val and on the September test; `arima_plus
 - `hr` ranks low (0.04) because `lag_24h` already encodes the hour of day.
 - `xsplit`, `ts`, `site_id` and `y_resid` do not appear, so the split column is not used as a feature.
 
-## Boosted trees on val (Day 3, step C4)
+## Boosted trees on val (Day 3)
 
-- The val numbers for `bt_raw` and `bt_resid` are on data the tuning already saw (EVAL and the inner TEST holdout both come from August), so they are optimistic; the honest number is the September test in phase F.
-- **Headline (val):** neither tree beats `naive_24h` over the full month (WAPE site 0.0133). `bt_resid` is the better tree (0.0208). It wins only on `day1` site WAPE (0.0661 vs 0.0699) and on city `wk1` (0.0098 vs 0.0110). Likely reason: the series look smoothed (31% repeated hours, 0.979 lag-24 correlation), so the baseline is almost the answer. Move this paragraph to the top of the file when the final tables are written (step G1).
+- The val numbers for `bt_raw` and `bt_resid` are on data the tuning already saw (EVAL and the inner TEST holdout both come from August), so they are optimistic; the honest number is the September test.
+- **Headline (val):** neither tree beats `naive_24h` over the full month (WAPE site 0.0133). `bt_resid` is the better tree (0.0208). It wins only on `day1` site WAPE (0.0661 vs 0.0699) and on city `wk1` (0.0098 vs 0.0110). Likely reason: the series look smoothed (31% repeated hours, 0.979 lag-24 correlation), so the baseline is almost the answer.
 - **Stop-loss row 4 triggered for `bt_raw`:** val WAPE 0.0900 is worse than `naive_168h` (0.0538). Checked for a bug first. None found: the val MAE (2.954) matches the tuning EVAL MAE (2.869), and for `bt_resid` 0.684 vs 0.727, so the join, the clip at 0 and the lag columns agree with training. The raw tree is just bad at re-learning "same as yesterday" (RMSE 31.7: a few large misses).
 
 | model | WAPE site, all | WAPE site, day1 | WAPE city, all | MAE, all |
@@ -137,21 +137,20 @@ WAPE site-pooled. Trees are scored on val and on the September test; `arima_plus
 | 5 | 0.233 | 8 | 0.879 |
 | 1 | 0.300 | 6 | 0.889 |
 
-- **Limitation:** for `bt_resid` the best trials sit at the **lower** edge of the depth range (best depth 4 is the minimum; the top five are depth 4 or 5). Shallower trees might do better. For `bt_raw` the best sat at the upper edge. Not re-tuned, by plan.
+- **Limitation:** for `bt_resid` the best trials sit at the **lower** edge of the depth range (best depth 4 is the minimum; the top five are depth 4 or 5). Shallower trees might do better. For `bt_raw` the best sat at the upper edge. Not re-tuned.
 
-## Batch inference (Day 3, phase D): cut, result does not match ML.PREDICT
+## Batch inference (Day 3): cut, result does not match ML.PREDICT
 
-One-day slice (1 Aug local, 33,312 rows) of `ev_demand_bt_raw`, Vertex batch prediction on one `n1-standard-2`. **Not usable for scoring.** The batch output disagrees with `ML.PREDICT` and the cause is not found. Cut under the plan's 40 min rule, moved to Day 4.
+One-day slice (1 Aug local, 33,312 rows) of `ev_demand_bt_raw`, Vertex batch prediction on one `n1-standard-2`. **Not usable for scoring.** The batch output disagrees with `ML.PREDICT` and the cause is not found. Cut after a 40 minute time box and picked up again on Day 4.
 
 - **Works:** `outputUri` = `bq://<project>.ev_ds` is accepted. The job writes a table `predictions_<timestamp>` (plus an `_errors` table) into that dataset. The output has the input columns plus a STRING column `prediction` (cast it to FLOAT64). With `instanceType = object` and a BigQuery source the rows are sent by column name.
 - **Attempt 1 failed on every row, but the job state said `SUCCEEDED`.** Only `completionStats.failedCount = 33312` and the `_errors` table showed it. Check the counts, not the state. Cause: the registered model is the bare XGBoost. `TRANSFORM` is **not** applied at serving (`ML.PREDICT` applies it, the Vertex path does not), so the input needs the already transformed features (`temp_bucket`, and `hr` / `dow` as strings). `ts` and `site_id` are rejected as non-features (error: `Row 0 has different features ... than the model features`).
 - **Fix for attempt 2:** `sql/60_batch_input.sql` builds the input with `ML.TRANSFORM(MODEL ev_ds.bt_raw, ...)`, which applies the model's own stored TRANSFORM (same bucket boundaries as training), then drops `ts`, `site_id` and the dummy `y_raw` / `xsplit`. All 33,312 rows were scored. With no key left, the compare joins on `(latitude, longitude, hr)`, unique here (33,312 of 33,312).
 - **Result vs `ML.PREDICT` on the same rows:** max abs diff 126.0, mean abs diff 3.95, correlation 0.98. MAE against actuals: batch 7.02, `ML.PREDICT` 3.27 (matches the `day1` MAE of `bt_raw` in `ev_ds.metrics`, 3.266). So the batch model is a worse, correlated predictor.
 - **Cause not found.** Leads, none confirmed: the registry holds a single version (4, alias `default`) created 2m23s after the final `bt_raw` job started, before training finished, so it may not hold the final weights. Or the categorical `hr`, `dow` and `temp_bucket` strings are encoded differently in the serving container. A possible test for Day 4: re-register with `ALTER MODEL ev_ds.bt_raw SET OPTIONS (vertex_ai_model_id = 'ev_demand_bt_raw')` and re-run the batch.
-- Cost: about $0.04 per attempt (20 min on one `n1-standard-2`), see `docs/cost-log.md`.
-- Day 4 follow-up: lead (1) is closed as untestable and the re-register step is impossible (see "Phase Q" in the Day 4 section at the end).
+- Day 4 follow-up: lead (1) is closed as untestable and the re-register step is impossible (see "Batch mismatch follow-up" in the Day 4 section at the end).
 
-## Weather uplift (city series), Day 3 phase E
+## Weather uplift (city series), Day 3
 
 One series (city total per hour, 4,392 rows), `ARIMA_PLUS` vs `ARIMA_PLUS_XREG` with 6 weather regressors (temp, precip, solarradiation, windspeed, cloudcover, humidity). Same training window (Apr-Jul), `auto_arima_max_order = 2`, horizon 744 from 2023-07-31 22:00 UTC. Scored on city WAPE only (`ev_ds.metrics_city`), val only so far.
 
@@ -165,9 +164,9 @@ One series (city total per hour, 4,392 rows), `ARIMA_PLUS` vs `ARIMA_PLUS_XREG` 
 - **Verdict: weather did not help.** The weather model is slightly worse than the plain one over the month (0.1122 vs 0.1016), clearly worse on the first week (0.1308 vs 0.0967) and equal on day 1. This is with oracle weather (actuals, not forecasts), so a real forecast-weather pipeline would be no better. It agrees with `ML.GLOBAL_EXPLAIN`, where weather features carry almost no importance.
 - Both models are frozen-origin 744 h forecasts, not day-ahead, so `naive_24h` (rolling, every input at least 24 h old) is not the right comparison. Its row is shown only for scale. Neither model sets `holiday_region`, so the pair is comparable with each other, not with the site-level model.
 - Caveats: one series, one run, order limit 2. The XREG model has more parameters and a long horizon, so a worse WAPE is plausible even without a real weather effect. Not tuned further.
-- The test-month pair is phase F3 (below).
+- The test-month pair is below.
 
-### City models on the test month (phase F3, read once)
+### City models on the test month (read once)
 
 Both ARIMA models retrained on Apr-Aug, 720 h forecast from 2023-08-31 22:00 UTC (September 2023 local). Trees are scored on the same hours (city totals of their site predictions). City WAPE, test:
 
@@ -190,10 +189,10 @@ Both ARIMA models retrained on Apr-Aug, 720 h forecast from 2023-08-31 22:00 UTC
 ### Model and runs
 
 - Model: XGBoost 2.1.4 on the residual label (`y_resid = energy_kwh - lag_24h`, prediction = `lag_24h` + output, clipped at 0). `max_depth` 4, `learning_rate` 0.231 (the best `bt_resid` trial), up to 500 trees, `reg:absoluteerror`, early stopping 30 on MAE, `tree_method` hist, `random_state` 0. The 19 `FEATURES` go through one shared function, `preprocess()`, with `hr` and `dow` as plain numbers (no TRANSFORM).
-- Container: `python:3.12-slim`, image `us-central1-docker.pkg.dev/ev-forecast-2026/ev/xgb-train:v1`, Vertex CustomJob on `e2-standard-8` as `ev-pipeline-sa`, timeout 90 min.
+- Container: `python:3.12-slim`, image `us-central1-docker.pkg.dev/<PROJECT>/ev/xgb-train:v1`, Vertex CustomJob on `e2-standard-8` as `ev-pipeline-sa`, timeout 90 min.
 - Run `c3` (CustomJob 3380177890887860224): 61 s, `n_train` 3,798,956, `n_val` 1,032,672, `eval_mae` 0.4879, `inner_test_mae` 0.2890, `val_wape` 0.013498, **`best_iteration` 0** (only one tree kept). Logged to Experiments `ev-demand` (screenshots `docs/img/day4-experiments-c3-params.png` and `...-metrics.png`).
 - The smoke test on 1 site in 20 also stopped at `best_iteration` 1: eval MAE was best after the first tree (0.258) and rose to 0.420 by tree 31. Likely reading: the residual around `lag_24h` is mostly noise a tree cannot learn, so extra trees overfit. I did not test this further. The smoke `val_wape` of 0.0100 is on a subset of sites and is not comparable with the full-data number.
-- Two earlier CustomJobs (`c1`, `c2`) failed on missing roles, see "Corrections" below. `c1` and `c2` never wrote results.
+- Two earlier CustomJobs (`c1`, `c2`) failed on missing roles, see "Problems found while building it" below. `c1` and `c2` never wrote results.
 
 ### Leaderboard (WAPE site-pooled, bucket all)
 
@@ -207,7 +206,7 @@ Both ARIMA models retrained on Apr-Aug, 720 h forecast from 2023-08-31 22:00 UTC
 | bt_raw | 0.0900 | 0.1293 | 4.276 |
 
 - Rows: val 1,032,672 and test 999,360 per model, 0 null predictions. The Day 3 numbers did not change when `ev_ds.metrics` was rebuilt.
-- Test was scored once with `scripts/predict_test.py` from the frozen `gs://ev-forecast-2026-raw/runs/p1/model/model.bst`, appended to `ev_ds.pred_xgb_resid`. Nothing was changed after seeing it.
+- Test was scored once with `scripts/predict_test.py` from the frozen `gs://<BUCKET>/runs/p1/model/model.bst`, appended to `ev_ds.pred_xgb_resid`. Nothing was changed after seeing it.
 
 ### Gated pipeline (`pipelines/pipeline.py`, kfp 2.17.0, google-cloud-pipeline-components 2.22.0)
 
@@ -219,10 +218,10 @@ Both ARIMA models retrained on Apr-Aug, 720 h forecast from 2023-08-31 22:00 UTC
 | forced | ev-xgb-gate-20261009221617 | 0.013498 | 0.05 (override) | true | pass | `ev_demand_xgb_resid_forced_demo`, label `gate=forced` |
 
 - **The forced run overrides the gate to prove the register branch works. It is not a win and the registered model is a demo.** Its train, evaluate and gate steps came from the Vertex cache.
-- `Model.upload` accepted the artifact folder and the prebuilt `xgboost-cpu.2-1` serving image. **Nothing has served a prediction from it**, so whether the image loads `model.bst` and what it returns is untested. The registered model would return the residual, not the demand.
+- `Model.upload` accepted the artifact folder and the prebuilt `xgboost-cpu.2-1` serving image. **Serving it did not work** (see Limitations): an online test failed on feature names. The registered model would return the residual, not the demand.
 - The forced run created two identical registry entries. The newer duplicate (8026373859869458432) was deleted, leaving 9130881668482072576. Cause not confirmed: the forced pipeline may have been submitted twice.
 
-### Phase Q: batch mismatch (Day 3 leftover)
+### Batch mismatch follow-up (Day 3 leftover)
 
 - Re-registering is impossible: `ALTER MODEL ev_ds.bt_raw SET OPTIONS (vertex_ai_model_id = ...)` fails with "already registered to Vertex AI". The registry holds exactly one version, `@4`, so a re-run of the batch could only hit it again. Not re-run.
 - Lead (1), stale version: `@4` was created 2026-10-08 12:34:35Z, 2.4 minutes after tuning started (12:32:11Z) and about 65 minutes before the BigQuery model finished (13:39:37Z). The BigQuery model records `vertexAiModelVersion: "4"`, so the link is right, but timestamps cannot show whether its weights are the final trial 9. The registry exposes no artifact URI. Untestable.
@@ -235,17 +234,17 @@ Both ARIMA models retrained on Apr-Aug, 720 h forecast from 2023-08-31 22:00 UTC
 
 ### CI
 
-- `tests/test_sql_dry_run.py` dry-runs six SQL files (`05_verify_load`, `06_eda`, `15_check_features`, `32_tree_input`, `40_evaluate`, `50_city_series`) and `tests/test_preprocess.py` checks column order and dtypes. 7 tests pass locally under my own credentials.
-- `.github/workflows/ci.yml` authenticates through Workload Identity Federation as `ev-ci-sa` (repository id condition). **Not verified:** a green GitHub Actions run. Dry-running `CREATE OR REPLACE TABLE` as `ev-ci-sa` (read-only roles) may need an extra permission.
+- `tests/test_sql_dry_run.py` dry-runs six SQL files (`05_verify_load`, `06_eda`, `15_check_features`, `32_tree_input`, `40_evaluate`, `50_city_series`) and `tests/test_preprocess.py` checks column order and dtypes. 7 tests passed locally under my own credentials.
+- `.github/workflows/ci.yml` authenticates through Workload Identity Federation as `ev-ci-sa` (repository id condition). The first two CI runs failed with `403 bigquery.tables.create denied`: a dry run of `CREATE OR REPLACE TABLE` needs the create permission, which the read-only account does not have. Auth itself worked. The test now strips the leading `CREATE OR REPLACE TABLE ... AS` and dry-runs the SELECT only, so the account stays read-only. The CI badge in the README shows the current state of the workflow.
 
-### Corrections found while executing the plan
+### Problems found while building it
 
 - `scikit-learn` was missing from the install list, and `pip` installs into the global Python (this venv is a uv venv).
 - `train_xgb.py` saved the model to `/tmp`, which does not exist on Windows.
 - `python:3.11-slim` cannot install `numpy==2.5.3` (needs Python 3.12 or newer), so the Dockerfile uses `python:3.12-slim`.
-- A3 (role bindings) was not applied before the first CustomJob. Dataset-level `bq add-iam-policy-binding` needs allowlisting here, so `bigquery.dataEditor` and `dataViewer` were granted at project level, and `bigquery.readSessionUser` was added (the Storage API read needs its own permission).
-- The plan expected the candidate near 0.02. It was 0.0135, close to the baseline.
-- `.gitignore` had `readme_1.mdpipelines/*.json` on one line after an `Add-Content` without a newline, and `training/requirements.txt` held pasted shell commands. Both fixed.
+- The service-account role bindings were not applied before the first CustomJob. Dataset-level `bq add-iam-policy-binding` needs allowlisting here, so `bigquery.dataEditor` and `dataViewer` were granted at project level, and `bigquery.readSessionUser` was added (the Storage API read needs its own permission).
+- I expected the candidate near 0.02. It was 0.0135, close to the baseline.
+- `training/requirements.txt` held pasted shell commands instead of pinned versions. Fixed.
 - Shell variables (`$BUCKET`, `$IMAGE`, `$PROJECT`) were empty in new shells several times and failed at argument parsing.
 
 ### Limitations
@@ -253,4 +252,5 @@ Both ARIMA models retrained on Apr-Aug, 720 h forecast from 2023-08-31 22:00 UTC
 - The 0.0002 test and val gaps are not tested for significance, so "tie" is the safe description.
 - Oracle weather, as on Day 3 (features are actuals, not forecasts).
 - One model, one run, one hyperparameter set (copied from the best `bt_resid` trial, not re-tuned for XGBoost).
-- The registered model is untested at serving time, and the SDK warned that it could not verify the pipeline artifacts bucket (harmless, the job ran).
+- **The registered model does not serve.** A one-row online prediction test through a temporary endpoint failed on feature names: the saved model remembers its training column names, and the serving container sends plain numbers without names. The endpoint was deleted afterwards (none left). The model also returns the residual, so serving would need `lag_24h` added back outside the model. It is registered, not served. `scripts/endpoint_demo.py` is the failed attempt. The frozen model was not changed after the test month was read.
+- The SDK warned that it could not verify the pipeline artifacts bucket (harmless, the job ran).

@@ -8,3 +8,8 @@ __pycache__/
 plans/*
 readme_1.md
 pipelines/*.json
+model.bst
+readme_1.md
+.claude/
+docs/cost-log.md
+docs/img/billing-*.png
