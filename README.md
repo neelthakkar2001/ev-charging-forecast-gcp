@@ -132,6 +132,10 @@ Tests: `python -m pytest -q tests` (needs `GCP_PROJECT` set for the SQL dry runs
 
 **Teardown:** `infra/teardown.ps1` (a dry run unless you pass `-Execute`) deletes endpoints, registry models, the Artifact Registry repo, run artifacts in the bucket, the Vertex Experiment, the WIF pool and both service accounts. The BigQuery dataset and its models stay (free tier), and the raw data stays in the bucket. BigQuery ML models registered in Vertex cannot be deleted from Vertex, so they remain listed there at no cost. After teardown a re-run needs `infra/setup.ps1` first, and CI cannot authenticate until WIF is recreated.
 
+## Licence
+
+The code in this repository is released under the [MIT licence](LICENSE). The CHARGED data is not included and keeps its own licence (see Data above).
+
 ## Attribution
 
 CHARGED dataset: Intelligent Systems Lab, see the repository and article linked above. Weather in CHARGED comes from Visual Crossing. This project is independent and not affiliated with the dataset authors.
