@@ -27,6 +27,8 @@ if ($eps) {
 
 "`n== 2. Vertex Model Registry models =="
 $models = gcloud ai models list --region=$REGION --format="value(name)"
+# BigQuery ML models registered in Vertex cannot be deleted from Vertex (the call errors). They cost nothing
+# and are left; delete the BigQuery model itself (bq rm -m) if you want them gone.
 foreach ($m in $models) {
     Act "model $m" { gcloud ai models delete $m --region=$REGION --quiet }
 }
@@ -46,6 +48,11 @@ if ($DeleteRawData) {
         gcloud storage rm -r "gs://$BUCKET/raw" "gs://$BUCKET/processed"
     }
 } else { "raw/ and processed/ kept (use -DeleteRawData to remove them)" }
+
+"`n== 4b. buckets created by Cloud Build and Vertex (source uploads, staging) =="
+$svcBuckets = gcloud storage buckets list --format="value(name)" | Where-Object { $_ -eq "${PROJECT}_cloudbuild" -or $_ -like "cloud-ai-platform-*" }
+foreach ($b in $svcBuckets) { Act "bucket gs://$b" { gcloud storage rm -r "gs://$b" } }
+if (-not $svcBuckets) { "none" }
 
 "`n== 5. Vertex Experiments: ev-demand =="
 Act "experiment ev-demand" {
